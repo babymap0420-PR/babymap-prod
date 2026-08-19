@@ -84,28 +84,26 @@ export function MapApp() {
   return (
     <div className="relative h-dvh w-full overflow-hidden bg-[#e6e4e0]">
       <div className="absolute inset-0">
+        <MapView
+          events={results}
+          userLocation={userLocation}
+          selectedEvent={selectedEvent}
+          hoveredEvent={hoveredEvent}
+          onSelect={(id) => {
+            setSelectedId(id);
+            setSearchFocused(false);
+          }}
+          onHover={setHoveredId}
+          onMapClick={() => {
+            setSelectedId(null);
+            setSearchFocused(false);
+          }}
+        />
         {isLocating ? (
-          <div className="flex h-full w-full flex-col items-center justify-center gap-3 bg-[#e6e4e0] text-[#5f6368]">
-            <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#dadce0] border-t-[#1a73e8]" />
-            <p className="text-sm">Finding your location…</p>
+          <div className="pointer-events-none absolute top-20 left-1/2 z-[1200] -translate-x-1/2 rounded-full bg-white px-4 py-2 text-sm text-[#5f6368] shadow-[0_1px_2px_rgba(60,64,67,.3),0_2px_6px_2px_rgba(60,64,67,.15)]">
+            Finding your location…
           </div>
-        ) : (
-          <MapView
-            events={results}
-            userLocation={userLocation}
-            selectedEvent={selectedEvent}
-            hoveredEvent={hoveredEvent}
-            onSelect={(id) => {
-              setSelectedId(id);
-              setSearchFocused(false);
-            }}
-            onHover={setHoveredId}
-            onMapClick={() => {
-              setSelectedId(null);
-              setSearchFocused(false);
-            }}
-          />
-        )}
+        ) : null}
       </div>
 
       <div

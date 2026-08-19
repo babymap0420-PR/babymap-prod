@@ -173,6 +173,18 @@ function MapStatus() {
   );
 }
 
+function RecenterOnUser({ location }: { location: GeoPoint }) {
+  const map = useMap();
+
+  useEffect(() => {
+    if (!map) return;
+    map.panTo({ lat: location.latitude, lng: location.longitude });
+    map.setZoom(14);
+  }, [map, location.latitude, location.longitude]);
+
+  return null;
+}
+
 function GoogleMapCanvas({
   events,
   userLocation,
@@ -230,6 +242,7 @@ function GoogleMapCanvas({
           />
         ))}
         <FlyToSelection event={selectedEvent} />
+        <RecenterOnUser location={userLocation} />
         <MapToolbar userLocation={userLocation} />
       </Map>
       <MapStatus />
