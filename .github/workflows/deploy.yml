@@ -24,8 +24,11 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Pin npm
-        run: npm install -g npm@10.9.2
+      - name: Use npm 10.9.2
+        run: |
+          corepack enable
+          corepack prepare npm@10.9.2 --activate
+          npm --version
 
       - name: Install dependencies
         run: npm ci
