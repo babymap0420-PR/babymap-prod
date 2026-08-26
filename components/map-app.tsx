@@ -7,6 +7,7 @@ import { EventDetailPanel } from "@/components/event-detail-panel";
 import { SearchOverlay } from "@/components/search-overlay";
 import { createMockEventsAround, searchEvents } from "@/data/events";
 import { cn } from "@/lib/cn";
+import { invokeEventsFunction } from "@/lib/supabase";
 import {
   DEFAULT_LOCATION,
   FALLBACK_AREA,
@@ -43,6 +44,10 @@ export function MapApp() {
   const hoveredEvent = results.find((event) => event.id === hoveredId) ?? null;
   const showSearchResults =
     searchFocused || (query.trim().length > 0 && !selectedEvent);
+
+  useEffect(() => {
+    void invokeEventsFunction("Baby Map");
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
