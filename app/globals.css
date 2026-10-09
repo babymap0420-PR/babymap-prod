@@ -1,14 +1,21 @@
 @import "tailwindcss";
 
 :root {
-  --background: #e6e4e0;
-  --foreground: #202124;
+  --background: #f7f4ef;
+  --foreground: #1c1917;
+  --coral: #ff6b6b;
+  --coral-dark: #f05252;
+  --stone: #f0ebe3;
+  --muted: #78716c;
+  --ink: #1c1917;
+  --line: #e7e5e4;
+  --green: #22c55e;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-roboto), Arial, Helvetica, sans-serif;
+  --font-sans: var(--font-plus-jakarta), Arial, Helvetica, sans-serif;
 }
 
 html,
@@ -20,47 +27,127 @@ body {
   font-family: var(--font-sans);
 }
 
-.baby-pin {
-  width: 36px;
-  height: 36px;
-  border-radius: 50% 50% 50% 0;
-  transform: rotate(-45deg);
+.kid-pin {
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 2px solid #fff;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.28);
+  border: 3px solid #fff;
+  box-shadow: 0 4px 12px rgba(28, 25, 23, 0.22);
 }
 
-.baby-pin span {
-  transform: rotate(45deg);
-  font-size: 15px;
+.kid-pin span {
+  font-size: 14px;
   line-height: 1;
 }
 
-.baby-pin--selected {
+.kid-pin--place {
+  width: 38px;
+  height: 38px;
+  border-radius: 999px;
+}
+
+.kid-pin--event {
+  width: 36px;
+  height: 42px;
+  flex-direction: column;
+  gap: 1px;
+  padding-top: 3px;
+  border-radius: 8px 8px 10px 10px;
+  color: #fff;
+}
+
+.kid-pin--event .kid-pin__date {
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  line-height: 1;
+}
+
+.kid-pin--event .kid-pin__emoji {
+  font-size: 13px;
+}
+
+.kid-pin--event::after {
+  content: "";
+  position: absolute;
+  bottom: -6px;
+  left: 50%;
+  width: 10px;
+  height: 10px;
+  background: inherit;
+  border-right: 3px solid #fff;
+  border-bottom: 3px solid #fff;
+  transform: translateX(-50%) rotate(45deg);
+}
+
+.kid-pin--event {
+  position: relative;
+}
+
+.pin-callout {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  z-index: 2;
+  width: 248px;
+  overflow: visible;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 12px 28px rgba(28, 25, 23, 0.18);
+  text-align: left;
+  transform: translateX(-50%);
+}
+
+.pin-callout img,
+.pin-callout > div:first-child {
+  border-radius: 16px 16px 0 0;
+}
+
+.pin-callout::after {
+  content: "";
+  position: absolute;
+  bottom: -6px;
+  left: 50%;
+  width: 12px;
+  height: 12px;
+  margin-left: -6px;
+  background: #fff;
+  transform: rotate(45deg);
+}
+
+.kid-pin--selected {
+  transform: scale(1.12);
+  box-shadow: 0 6px 16px rgba(28, 25, 23, 0.28);
+}
+
+.kid-pin--combo {
+  position: relative;
   width: 44px;
   height: 44px;
+  border-radius: 14px;
+  background: #fff;
+  color: #1c1917;
 }
 
-.baby-pin--playdate {
-  background: #ea4335;
+.kid-pin--combo span {
+  font-size: 18px;
 }
 
-.baby-pin--class {
-  background: #1a73e8;
-}
-
-.baby-pin--meetup {
-  background: #34a853;
-}
-
-.baby-pin--market {
-  background: #fbbc04;
-}
-
-.baby-pin--outdoors {
-  background: #0f9d58;
+.kid-pin__count {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #ff6b6b;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 18px;
+  text-align: center;
 }
 
 .user-location-dot {
@@ -73,7 +160,7 @@ body {
   position: absolute;
   inset: 0;
   border-radius: 999px;
-  background: rgb(26 115 232 / 0.28);
+  background: rgb(61 154 74 / 0.28);
 }
 
 .user-location-dot__core {
@@ -84,7 +171,7 @@ body {
   height: 14px;
   border: 2px solid #fff;
   border-radius: 999px;
-  background: #1a73e8;
+  background: #3d9a4a;
   transform: translate(-50%, -50%);
   box-shadow: 0 1px 4px rgb(0 0 0 / 0.28);
 }

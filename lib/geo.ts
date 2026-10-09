@@ -20,6 +20,35 @@ export const FALLBACK_AREA: AreaLabel = {
   areaLabel: "Near you",
 };
 
+export const DEMO_RICHMOND_HILL: GeoPoint = {
+  latitude: 43.8828,
+  longitude: -79.4403,
+};
+
+export const JUMP_AREAS: { name: string; point: GeoPoint }[] = [
+  { name: "Richmond Hill", point: DEMO_RICHMOND_HILL },
+  { name: "Oak Ridges", point: { latitude: 43.943, longitude: -79.456 } },
+  { name: "Mill Pond", point: { latitude: 43.874, longitude: -79.437 } },
+  { name: "Bayview Hill", point: { latitude: 43.868, longitude: -79.41 } },
+  { name: "Crosby", point: { latitude: 43.89, longitude: -79.45 } },
+  { name: "Elgin Mills", point: { latitude: 43.905, longitude: -79.44 } },
+];
+
+export function distanceMeters(
+  a: { latitude: number; longitude: number },
+  b: { latitude: number; longitude: number },
+) {
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+  const dLat = toRad(b.latitude - a.latitude);
+  const dLng = toRad(b.longitude - a.longitude);
+  const lat1 = toRad(a.latitude);
+  const lat2 = toRad(b.latitude);
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
+  return 2 * 6371000 * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
 export function getBrowserLocation(): Promise<GeoPoint> {
   return new Promise((resolve, reject) => {
     if (!navigator.geolocation) {

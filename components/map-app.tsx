@@ -1,74 +1,120 @@
 "use client";
 
+import { MapPin, Plus, UserRound } from "lucide-react";
 import dynamic from "next/dynamic";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { EventDetailPanel } from "@/components/event-detail-panel";
-import { SearchOverlay } from "@/components/search-overlay";
-import { createMockEventsAround, searchEvents } from "@/data/events";
+import { AddSheet } from "@/components/add-sheet";
+import { ComboPicker } from "@/components/combo-picker";
+import { DetailPanel } from "@/components/detail-panel";
+import { FilterBar } from "@/components/filter-bar";
+import { ProfileSheet } from "@/components/profile-sheet";
+import { SearchBar } from "@/components/search-bar";
+import { SummaryCard } from "@/components/summary-card";
+import {
+  flagContent,
+  getLocation,
+  hasSupabaseKey,
+  searchLocations,
+  toggleFavourite,
+  upvoteLocation,
+  addReview,
+} from "@/lib/api";
+import { categoryLabel } from "@/data/lookups";
 import { cn } from "@/lib/cn";
-import { invokeEventsFunction } from "@/lib/supabase";
+import { eventWindow, type DatePreset } from "@/lib/format";
+import { listingPhoto } from "@/lib/photos";
 import {
   DEFAULT_LOCATION,
+  DEMO_RICHMOND_HILL,
   FALLBACK_AREA,
+  JUMP_AREAS,
+  distanceMeters,
   getBrowserLocation,
   reverseGeocode,
+  type AreaLabel,
   type GeoPoint,
 } from "@/lib/geo";
-import type { BabyEvent, EventCategory } from "@/types/event";
+import {
+  getAppUserId,
+  getDisplayName,
+  hasUpvoted,
+  markUpvoted,
+} from "@/lib/user";
+import type { Badge, MapLocation, TypeTab } from "@/types/location";
 
 const MapView = dynamic(() => import("@/components/map-view"), {
   ssr: false,
-  loading: () => <div className="h-full w-full bg-[#e6e4e0]" />,
+  loading: () => <div className="h-full w-full bg-[#f7f4ef]" />,
 });
 
 export function MapApp() {
   const [query, setQuery] = useState("");
-  const [category, setCategory] = useState<EventCategory | "all">("all");
+  const [tab, setTab] = useState<TypeTab>("all");
+  const [categories, setCategories] = useState<string[]>([]);
+  const [ageTags, setAgeTags] = useState<string[]>([]);
+  const [freeOnly, setFreeOnly] = useState(false);
+  const [datePreset, setDatePreset] = useState<DatePreset>("default");
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo, setCustomTo] = useState("");
+  const [userLocation, setUserLocation] = useState<GeoPoint>(DEFAULT_LOCATION);
+  const [locations, setLocations] = useState<MapLocation[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
-  const [searchFocused, setSearchFocused] = useState(false);
-  const [followedHosts, setFollowedHosts] = useState<string[]>([]);
-  const [savedEvents, setSavedEvents] = useState<string[]>([]);
-  const [userLocation, setUserLocation] = useState<GeoPoint>(DEFAULT_LOCATION);
-  const [events, setEvents] = useState<BabyEvent[]>(() =>
-    createMockEventsAround(DEFAULT_LOCATION, FALLBACK_AREA),
-  );
+  const [detail, setDetail] = useState<MapLocation | null>(null);
+  const [comboItems, setComboItems] = useState<MapLocation[] | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [showAdd, setShowAdd] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
+  const [toast, setToast] = useState("");
+  const [badges, setBadges] = useState<Badge[]>([]);
   const [isLocating, setIsLocating] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const [voted, setVoted] = useState<Record<string, boolean>>({});
+  const [area, setArea] = useState<AreaLabel>(FALLBACK_AREA);
 
-  const results = useMemo(
-    () => searchEvents(events, query, category),
-    [events, query, category],
+  const selected = locations.find((item) => item.id === selectedId) ?? null;
+  const windowRange = useMemo(
+    () => eventWindow(tab === "event" ? datePreset : "default", customFrom, customTo),
+    [tab, datePreset, customFrom, customTo],
   );
-  const selectedEvent = events.find((event) => event.id === selectedId) ?? null;
-  const hoveredEvent = results.find((event) => event.id === hoveredId) ?? null;
-  const showSearchResults =
-    searchFocused || (query.trim().length > 0 && !selectedEvent);
 
-  useEffect(() => {
-    void invokeEventsFunction("Baby Map");
-  }, []);
+  const load = useCallback(async (center: GeoPoint) => {
+    if (!hasSupabaseKey()) {
+      setLoadError("Add NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY to frontend/.env.local");
+      return;
+    }
+    try {
+      const results = await searchLocations({
+        lat: center.latitude,
+        lng: center.longitude,
+        type: "all",
+        categories: [],
+        ageTags,
+        freeOnly,
+        query,
+        eventFrom: windowRange.from,
+        eventTo: windowRange.to,
+      });
+      setLocations(results);
+      setLoadError("");
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : "Could not load KidSpot");
+    }
+  }, [ageTags, freeOnly, query, windowRange.from, windowRange.to]);
 
   useEffect(() => {
     let cancelled = false;
-
     async function locate() {
       try {
         const point = await getBrowserLocation();
-        if (cancelled) return;
-        const area = await reverseGeocode(point);
-        if (cancelled) return;
-        setUserLocation(point);
-        setEvents(createMockEventsAround(point, area));
+        if (!cancelled) setUserLocation(point);
       } catch {
-        if (!cancelled) {
-          setEvents(createMockEventsAround(DEFAULT_LOCATION, FALLBACK_AREA));
-        }
+        if (!cancelled) setUserLocation(DEFAULT_LOCATION);
       } finally {
         if (!cancelled) setIsLocating(false);
       }
     }
-
     void locate();
     return () => {
       cancelled = true;
@@ -76,93 +122,648 @@ export function MapApp() {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+    void reverseGeocode(userLocation).then((label) => {
+      if (!cancelled) setArea(label);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [userLocation]);
+
+  useEffect(() => {
+    if (isLocating) return;
+    const timeoutId = window.setTimeout(() => {
+      void load(userLocation);
+    }, 200);
+    return () => window.clearTimeout(timeoutId);
+  }, [isLocating, load, userLocation]);
+
+  useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
+        setDetail(null);
         setSelectedId(null);
-        setSearchFocused(false);
+        setSearchOpen(false);
+        setShowAdd(false);
+        setShowProfile(false);
+        setComboItems(null);
       }
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
+  async function openDetails(id: string) {
+    setComboItems(null);
+    setSearchOpen(false);
+    setSelectedId(id);
+    try {
+      const full = await getLocation(id, getAppUserId(), {
+        lat: userLocation.latitude,
+        lng: userLocation.longitude,
+      });
+      setDetail(full);
+      setVoted((current) => ({ ...current, [id]: hasUpvoted(id) }));
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : "Could not open details");
+    }
+  }
+
+  const typedLocations = locations.filter((item) => {
+    if (tab !== "all" && item.type !== tab) return false;
+    if (categories.length === 0) return true;
+    return categories.some(
+      (id) => id === item.category || categoryLabel(id) === categoryLabel(item.category),
+    );
+  });
+  const searchResults = query.trim()
+    ? typedLocations.filter((item) =>
+        item.name.toLowerCase().includes(query.trim().toLowerCase()),
+      )
+    : typedLocations;
+  const placeCount = locations.filter((item) => item.type === "place").length;
+  const eventCount = locations.filter((item) => item.type === "event").length;
+  const listPlaces = searchResults.filter((item) => item.type === "place");
+  const listEvents = searchResults
+    .filter((item) => item.type === "event")
+    .sort((a, b) =>
+      (a.event_details?.start_datetime ?? "").localeCompare(
+        b.event_details?.start_datetime ?? "",
+      ),
+    );
+  const jumpAreas =
+    query.trim() && searchResults.length < 2
+      ? JUMP_AREAS.filter((area) =>
+          area.name.toLowerCase().includes(query.trim().toLowerCase()),
+        )
+      : [];
+  function nearbyEvents(place: MapLocation) {
+    return locations.filter(
+      (item) =>
+        item.type === "event" && distanceMeters(place, item) <= 15,
+    ).length;
+  }
+  const hubLabel =
+    area.city && area.city !== FALLBACK_AREA.city
+      ? `${area.city.split(",")[0]} Parent Hub`
+      : "Parent Hub";
+  function selectListing(id: string) {
+    setSelectedId(id);
+    setDetail(null);
+    setSearchOpen(false);
+    setComboItems(null);
+    setShowAdd(false);
+    setShowProfile(false);
+  }
+
+  function openAdd() {
+    setShowAdd(true);
+    setShowProfile(false);
+    setDetail(null);
+    setSearchOpen(false);
+  }
+
+  const filters = (variant: "overlay" | "sidebar") => (
+    <FilterBar
+      variant={variant}
+      tab={tab}
+      onTabChange={(next) => {
+        setTab(next);
+        setCategories([]);
+        if (next !== "event") setDatePreset("default");
+      }}
+      categories={categories}
+      onToggleCategory={(id) =>
+        setCategories((current) =>
+          current.includes(id)
+            ? current.filter((item) => item !== id)
+            : [...current, id],
+        )
+      }
+      ageTags={ageTags}
+      onToggleAge={(id) =>
+        setAgeTags((current) =>
+          current.includes(id)
+            ? current.filter((item) => item !== id)
+            : [...current, id],
+        )
+      }
+      freeOnly={freeOnly}
+      onToggleFree={() => setFreeOnly((value) => !value)}
+      datePreset={datePreset}
+      onDatePreset={setDatePreset}
+      customFrom={customFrom}
+      customTo={customTo}
+      onCustomFrom={setCustomFrom}
+      onCustomTo={setCustomTo}
+      placeCount={placeCount}
+      eventCount={eventCount}
+    />
+  );
+
   return (
-    <div className="relative h-dvh w-full overflow-hidden bg-[#e6e4e0]">
-      <div className="absolute inset-0">
+    <div className="relative h-dvh w-full overflow-hidden bg-white">
+      <div className="absolute inset-0 md:left-[420px]">
         <MapView
-          events={results}
+          locations={typedLocations}
           userLocation={userLocation}
-          selectedEvent={selectedEvent}
-          hoveredEvent={hoveredEvent}
+          selectedId={selectedId}
+          hoveredId={hoveredId}
           onSelect={(id) => {
+            setDetail(null);
             setSelectedId(id);
-            setSearchFocused(false);
+            setSearchOpen(false);
+            setComboItems(null);
           }}
           onHover={setHoveredId}
+          onCombo={(items) => {
+            setDetail(null);
+            setSelectedId(null);
+            setComboItems(items);
+          }}
           onMapClick={() => {
             setSelectedId(null);
-            setSearchFocused(false);
+            setDetail(null);
+            setSearchOpen(false);
+            setComboItems(null);
           }}
+          onDetails={(id) => {
+            setSelectedId(id);
+            void openDetails(id);
+          }}
+          showCallout={!detail}
+          showLocateLabel={!detail}
         />
         {isLocating ? (
-          <div className="pointer-events-none absolute top-20 left-1/2 z-[1200] -translate-x-1/2 rounded-full bg-white px-4 py-2 text-sm text-[#5f6368] shadow-[0_1px_2px_rgba(60,64,67,.3),0_2px_6px_2px_rgba(60,64,67,.15)]">
+          <div className="pointer-events-none absolute top-20 left-1/2 z-[1200] -translate-x-1/2 rounded-full bg-white px-4 py-2 text-sm text-[#78716c] shadow">
             Finding your location…
           </div>
         ) : null}
-      </div>
-
-      <div
-        className={cn(
-          "pointer-events-none absolute z-[1100] flex flex-col gap-3",
-          "top-3 right-3 left-3 md:top-4 md:left-4 md:right-auto md:w-[408px]",
-          selectedEvent
-            ? "bottom-0 md:bottom-4 md:max-h-[calc(100dvh-32px)]"
-            : "md:max-h-[calc(100dvh-32px)]",
-        )}
-      >
-        <SearchOverlay
-          query={query}
-          onQueryChange={setQuery}
-          category={category}
-          onCategoryChange={setCategory}
-          results={results}
-          selectedEventId={selectedId}
-          isFocused={showSearchResults}
-          onFocusChange={setSearchFocused}
-          onSelect={(id) => {
-            setSelectedId(id);
-            setSearchFocused(false);
-          }}
-        />
-
-        {selectedEvent ? (
-          <div className="flex min-h-0 flex-1 md:min-h-0">
-            <EventDetailPanel
-              key={selectedEvent.id}
-              event={selectedEvent}
-              following={followedHosts.includes(selectedEvent.host.id)}
-              saved={savedEvents.includes(selectedEvent.id)}
-              onClose={() => setSelectedId(null)}
-              onToggleFollow={() => {
-                const hostId = selectedEvent.host.id;
-                setFollowedHosts((current) =>
-                  current.includes(hostId)
-                    ? current.filter((id) => id !== hostId)
-                    : [...current, hostId],
-                );
+        <button
+          type="button"
+          onClick={openAdd}
+          className="absolute right-4 bottom-6 z-[1200] hidden items-center gap-2 rounded-full bg-[#ff6b6b] px-5 py-3 text-[15px] font-bold text-white shadow-[0_10px_24px_rgba(255,107,107,0.4)] md:flex"
+        >
+          <Plus size={18} />
+          Add a spot
+        </button>
+        {detail ? (
+          <div className="absolute top-16 right-4 bottom-4 z-[1250] hidden w-[380px] md:flex">
+            <DetailPanel
+              key={detail.id}
+              location={detail}
+              upvoted={Boolean(voted[detail.id])}
+              onClose={() => setDetail(null)}
+              onUpvote={() => void handleUpvote(detail)}
+              onFavourite={() => void handleFavourite(detail)}
+              onShare={() => {
+                void navigator.clipboard?.writeText(`${detail.name} · ${detail.address}`);
+                setToast("Copied share text");
               }}
-              onToggleSave={() => {
-                const eventId = selectedEvent.id;
-                setSavedEvents((current) =>
-                  current.includes(eventId)
-                    ? current.filter((id) => id !== eventId)
-                    : [...current, eventId],
-                );
-              }}
+              onFlag={() => void handleFlag(detail)}
+              onReview={(body, thumbsUp) => void handleReview(detail, body, thumbsUp)}
             />
           </div>
         ) : null}
       </div>
+
+      <aside className="absolute inset-y-0 left-0 z-[1100] hidden w-[420px] flex-col border-r border-[#f0ebe3] bg-white md:flex">
+        <div className="flex items-center gap-2 px-4 pt-4 pb-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#3d9a4a] text-white">
+            <MapPin size={18} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-[18px] leading-5 font-extrabold text-[#1c1917]">KidSpot</p>
+            <p className="truncate text-[12px] text-[#78716c]">{hubLabel}</p>
+          </div>
+        </div>
+        <div className="px-4 pb-3">
+          <SearchBar
+            variant="sidebar"
+            query={query}
+            onQueryChange={(value) => {
+              setQuery(value);
+              setSearchOpen(true);
+            }}
+            onFocus={() => setSearchOpen(true)}
+            onClear={() => {
+              setQuery("");
+              setSearchOpen(false);
+            }}
+          />
+        </div>
+        <div className="px-3 pb-2">{filters("sidebar")}</div>
+        {searchOpen && query.trim() ? (
+          <div className="mx-4 mb-2 overflow-hidden rounded-2xl border border-[#f0ebe3] bg-white shadow-[0_8px_24px_rgba(28,25,23,0.08)]">
+            <p className="px-3 pt-2 text-[11px] font-semibold tracking-wide text-[#a8a29e] uppercase">
+              KidSpot
+            </p>
+            {searchResults.length === 0 ? (
+              <p className="px-3 py-2 text-[13px] text-[#78716c]">No name matches.</p>
+            ) : (
+              searchResults.slice(0, 5).map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className="block w-full truncate px-3 py-2 text-left text-[14px] text-[#1c1917] hover:bg-[#fafaf9]"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => selectListing(item.id)}
+                >
+                  {item.name}
+                </button>
+              ))
+            )}
+            {jumpAreas.length > 0 ? (
+              <>
+                <p className="px-3 pt-2 text-[11px] font-semibold tracking-wide text-[#a8a29e] uppercase">
+                  Jump to Area
+                </p>
+                {jumpAreas.map((area) => (
+                  <button
+                    key={area.name}
+                    type="button"
+                    className="block w-full px-3 py-2 text-left text-[14px] text-[#1c1917] hover:bg-[#fafaf9]"
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => {
+                      setUserLocation(area.point);
+                      setQuery("");
+                      setSearchOpen(false);
+                    }}
+                  >
+                    {area.name}
+                  </button>
+                ))}
+              </>
+            ) : null}
+          </div>
+        ) : null}
+        <div className="px-5 py-2">
+          <p className="text-[13px] text-[#a8a29e]">
+            {listPlaces.length} places · {listEvents.length} events
+          </p>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-4">
+          {searchResults.length === 0 ? (
+            <p className="px-2 py-6 text-[14px] text-[#78716c]">
+              {query.trim()
+                ? "No KidSpot listings match that name."
+                : "No KidSpot listings nearby yet."}
+            </p>
+          ) : (
+            <div className="space-y-4">
+              {tab !== "place" && listEvents.length > 0 ? (
+                <section>
+                  <p className="px-1 pb-2 text-[11px] font-semibold tracking-wide text-[#a8a29e] uppercase">
+                    Upcoming events
+                  </p>
+                  <ul className="space-y-2">
+                    {listEvents.map((item) => (
+                      <li key={item.id}>
+                        <SummaryCard
+                          variant="list"
+                          location={item}
+                          selected={item.id === selectedId}
+                          onHover={setHoveredId}
+                          onDetails={() => selectListing(item.id)}
+                        />
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              ) : null}
+              {tab !== "event" && listPlaces.length > 0 ? (
+                <section>
+                  <p className="px-1 pb-2 text-[11px] font-semibold tracking-wide text-[#a8a29e] uppercase">
+                    Places
+                  </p>
+                  <ul className="space-y-2">
+                    {listPlaces.map((item) => (
+                      <li key={item.id}>
+                        <SummaryCard
+                          variant="list"
+                          location={item}
+                          selected={item.id === selectedId}
+                          nearbyEventCount={nearbyEvents(item)}
+                          onHover={setHoveredId}
+                          onDetails={() => selectListing(item.id)}
+                        />
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              ) : null}
+            </div>
+          )}
+        </div>
+        {comboItems && !detail ? (
+          <div className="px-3 pb-3">
+            <ComboPicker
+              names={comboItems.map((item) => ({
+                id: item.id,
+                name: item.name,
+                type: item.type,
+              }))}
+              onPick={(id) => selectListing(id)}
+              onClose={() => setComboItems(null)}
+            />
+          </div>
+        ) : null}
+      </aside>
+
+      <div
+        className={cn(
+          "pointer-events-none absolute z-[1100] flex flex-col gap-3 md:hidden",
+          "top-3 right-3 left-3",
+          detail || showAdd || showProfile ? "bottom-0" : "",
+        )}
+      >
+        <div className="pointer-events-auto flex items-center gap-2">
+          <div className="min-w-0 flex-1">
+            <SearchBar
+              query={query}
+              onQueryChange={(value) => {
+                setQuery(value);
+                setSearchOpen(true);
+              }}
+              onFocus={() => setSearchOpen(true)}
+              onClear={() => {
+                setQuery("");
+                setSearchOpen(false);
+              }}
+            />
+          </div>
+          <button
+            type="button"
+            aria-label="Profile and badges"
+            onClick={() => {
+              setShowProfile(true);
+              setShowAdd(false);
+              setDetail(null);
+            }}
+            className="flex h-12 w-12 items-center justify-center rounded-full bg-white text-[#1c1917] shadow-[0_8px_24px_rgba(28,25,23,0.10)]"
+          >
+            <UserRound size={20} />
+          </button>
+        </div>
+
+        <div className="pointer-events-auto">{filters("overlay")}</div>
+
+        {searchOpen && !detail && !showAdd && !showProfile ? (
+          <div className="pointer-events-auto max-h-[min(42vh,360px)] overflow-y-auto rounded-2xl bg-white shadow-[0_12px_32px_rgba(28,25,23,0.14)]">
+            <p className="px-4 py-2 text-[12px] font-semibold tracking-wide text-[#a8a29e] uppercase">
+              {query.trim() ? `${searchResults.length} matches` : "Nearby"}
+            </p>
+            {searchResults.length === 0 ? (
+              <p className="px-4 pb-4 text-[14px] text-[#78716c]">
+                No KidSpot listings match that name.
+              </p>
+            ) : (
+              <ul>
+                {searchResults.map((item) => (
+                  <li key={item.id}>
+                    <button
+                      type="button"
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => {
+                        setSelectedId(item.id);
+                        setSearchOpen(false);
+                        setComboItems(null);
+                        setDetail(null);
+                      }}
+                      className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-[#fafaf9]"
+                    >
+                      <img
+                        src={listingPhoto(item.cover_photo_url, item.photo_urls)}
+                        alt=""
+                        className="h-12 w-12 rounded-xl object-cover"
+                      />
+                      <span className="min-w-0">
+                        <span className="block truncate text-[15px] font-medium text-[#1c1917]">
+                          {item.name}
+                        </span>
+                        <span className="text-[12px] text-[#a8a29e]">
+                          {item.type === "event" ? "Event" : "Place"}
+                        </span>
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        ) : null}
+
+        {comboItems && !detail ? (
+          <ComboPicker
+            names={comboItems.map((item) => ({
+              id: item.id,
+              name: item.name,
+              type: item.type,
+            }))}
+            onPick={(id) => {
+              setSelectedId(id);
+              setComboItems(null);
+            }}
+            onClose={() => setComboItems(null)}
+          />
+        ) : null}
+
+        {selected && !detail && !showAdd && !showProfile ? (
+          <SummaryCard location={selected} onDetails={() => void openDetails(selected.id)} />
+        ) : null}
+
+        {detail ? (
+          <div className="flex min-h-0 flex-1">
+            <DetailPanel
+              key={detail.id}
+              location={detail}
+              upvoted={Boolean(voted[detail.id])}
+              onClose={() => setDetail(null)}
+              onUpvote={() => void handleUpvote(detail)}
+              onFavourite={() => void handleFavourite(detail)}
+              onShare={() => {
+                void navigator.clipboard?.writeText(`${detail.name} · ${detail.address}`);
+                setToast("Copied share text");
+              }}
+              onFlag={() => void handleFlag(detail)}
+              onReview={(body, thumbsUp) => void handleReview(detail, body, thumbsUp)}
+            />
+          </div>
+        ) : null}
+
+        {showAdd ? (
+          <AddSheet
+            userLocation={userLocation}
+            onClose={() => setShowAdd(false)}
+            onComplete={(earned, message) => {
+              setShowAdd(false);
+              setBadges(earned);
+              setToast(message);
+              void load(userLocation);
+            }}
+          />
+        ) : null}
+
+        {showProfile ? <ProfileSheet onClose={() => setShowProfile(false)} /> : null}
+      </div>
+
+      {showAdd ? (
+        <div className="absolute inset-0 z-[1400] hidden items-center justify-center bg-black/25 p-6 md:flex">
+          <div className="w-full max-w-lg">
+            <AddSheet
+              userLocation={userLocation}
+              onClose={() => setShowAdd(false)}
+              onComplete={(earned, message) => {
+                setShowAdd(false);
+                setBadges(earned);
+                setToast(message);
+                void load(userLocation);
+              }}
+            />
+          </div>
+        </div>
+      ) : null}
+
+      {showProfile ? (
+        <div className="absolute inset-0 z-[1400] hidden items-center justify-center bg-black/25 p-6 md:flex">
+          <div className="w-full max-w-lg">
+            <ProfileSheet onClose={() => setShowProfile(false)} />
+          </div>
+        </div>
+      ) : null}
+
+      <button
+        type="button"
+        onClick={openAdd}
+        className="absolute right-4 bottom-6 z-[1200] flex items-center gap-2 rounded-full bg-[#ff6b6b] px-4 py-3 text-[14px] font-bold text-white shadow-[0_10px_24px_rgba(255,107,107,0.45)] md:hidden"
+      >
+        <Plus size={18} />
+        Add a spot
+      </button>
+
+      {locations.length === 0 && !isLocating && !loadError ? (
+        <button
+          type="button"
+          onClick={() => {
+            setUserLocation(DEMO_RICHMOND_HILL);
+            setToast("Showing the Richmond Hill demo area from the spec");
+          }}
+          className="absolute bottom-24 left-1/2 z-[1200] -translate-x-1/2 rounded-full bg-white px-4 py-2 text-[13px] font-medium text-[#1c1917] shadow md:bottom-8 md:left-[calc(420px+50%)]"
+        >
+          Nothing nearby — jump to demo listings
+        </button>
+      ) : null}
+
+      {loadError ? (
+        <div className="absolute bottom-8 left-1/2 z-[1200] max-w-sm -translate-x-1/2 rounded-2xl bg-white px-4 py-3 text-center text-[13px] text-[#ff6b6b] shadow md:left-[calc(420px+50%)]">
+          <p>{loadError}</p>
+          <button
+            type="button"
+            className="mt-2 text-[12px] font-semibold text-[#1c1917]"
+            onClick={() => void load(userLocation)}
+          >
+            Retry
+          </button>
+        </div>
+      ) : null}
+
+      {toast || badges.length ? (
+        <div className="absolute bottom-8 left-1/2 z-[1500] w-[min(92vw,360px)] -translate-x-1/2 rounded-2xl bg-[#1c1917] px-4 py-3 text-white shadow md:left-[calc(420px+50%)]">
+          {toast ? <p className="text-[14px]">{toast}</p> : null}
+          {badges.map((badge) => (
+            <p key={badge.id} className="mt-1 text-[13px]">
+              {badge.icon_url} Badge: {badge.name}
+            </p>
+          ))}
+          <button
+            type="button"
+            className="mt-2 text-[12px] text-[#f7f4ef]"
+            onClick={() => {
+              setToast("");
+              setBadges([]);
+            }}
+          >
+            Dismiss
+          </button>
+        </div>
+      ) : null}
     </div>
   );
+
+  async function handleUpvote(location: MapLocation) {
+    if (hasUpvoted(location.id) || voted[location.id]) return;
+    try {
+      const result = await upvoteLocation({
+        userId: getAppUserId(),
+        locationId: location.id,
+        displayName: getDisplayName() || undefined,
+      });
+      markUpvoted(location.id);
+      setVoted((current) => ({ ...current, [location.id]: true }));
+      setDetail({ ...location, upvote_count: result.upvote_count });
+      setLocations((current) =>
+        current.map((item) =>
+          item.id === location.id
+            ? { ...item, upvote_count: result.upvote_count }
+            : item,
+        ),
+      );
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : "Could not upvote");
+    }
+  }
+
+  async function handleFavourite(location: MapLocation) {
+    try {
+      const result = await toggleFavourite({
+        userId: getAppUserId(),
+        locationId: location.id,
+        displayName: getDisplayName() || undefined,
+      });
+      setDetail({
+        ...location,
+        is_favourite: result.is_favourite,
+        favourite_count: result.favourite_count,
+      });
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : "Could not favourite");
+    }
+  }
+
+  async function handleFlag(location: MapLocation) {
+    const reason = window.prompt("Why are you flagging this listing?") ?? "";
+    try {
+      const result = await flagContent({
+        userId: getAppUserId(),
+        contentType: "location",
+        contentId: location.id,
+        reason,
+      });
+      setToast(
+        result.resolution === "auto_hidden"
+          ? "Thanks. This listing was hidden."
+          : "Thanks. We’ll review this flag.",
+      );
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : "Could not flag");
+    }
+  }
+
+  async function handleReview(location: MapLocation, body: string, thumbsUp: boolean) {
+    try {
+      const result = await addReview({
+        userId: getAppUserId(),
+        locationId: location.id,
+        body,
+        thumbsUp,
+        displayName: getDisplayName() || undefined,
+      });
+      setBadges(result.badges ?? []);
+      setToast("Review posted");
+      await openDetails(location.id);
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : "Could not review");
+    }
+  }
 }
