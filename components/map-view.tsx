@@ -4,13 +4,11 @@ import {
   APILoadingStatus,
   APIProvider,
   AdvancedMarker,
-  ControlPosition,
   Map,
-  MapControl,
   useApiLoadingStatus,
   useMap,
 } from "@vis.gl/react-google-maps";
-import { ArrowRight, Locate, MessageCircle, ThumbsUp } from "lucide-react";
+import { ArrowRight, MessageCircle, ThumbsUp } from "lucide-react";
 import { useEffect, useRef } from "react";
 
 import { categoryColor, categoryEmoji, categoryLabel } from "@/data/lookups";
@@ -40,7 +38,7 @@ export default function MapView({
   onMapClick,
   onDetails,
   showCallout = true,
-  showLocateLabel = true,
+  recenterRef,
 }: {
   locations: MapLocation[];
   userLocation: GeoPoint;
@@ -52,7 +50,7 @@ export default function MapView({
   onMapClick: () => void;
   onDetails: (id: string) => void;
   showCallout?: boolean;
-  showLocateLabel?: boolean;
+  recenterRef?: { current: (() => void) | null };
 }) {
   if (!GOOGLE_MAPS_API_KEY) {
     return <MissingApiKey />;
@@ -71,7 +69,7 @@ export default function MapView({
         onMapClick={onMapClick}
         onDetails={onDetails}
         showCallout={showCallout}
-        showLocateLabel={showLocateLabel}
+        recenterRef={recenterRef}
       />
     </APIProvider>
   );
@@ -88,7 +86,7 @@ function GoogleMapCanvas({
   onMapClick,
   onDetails,
   showCallout = true,
-  showLocateLabel = true,
+  recenterRef,
 }: {
   locations: MapLocation[];
   userLocation: GeoPoint;
@@ -100,7 +98,7 @@ function GoogleMapCanvas({
   onMapClick: () => void;
   onDetails: (id: string) => void;
   showCallout?: boolean;
-  showLocateLabel?: boolean;
+  recenterRef?: { current: (() => void) | null };
 }) {
   const clusters = clusterLocations(locations);
   const pinClick = useRef(false);
@@ -188,7 +186,7 @@ function GoogleMapCanvas({
           location={locations.find((item) => item.id === selectedId) ?? null}
         />
         <RecenterOnUser location={userLocation} />
-        <MapToolbar userLocation={userLocation} showLocateLabel={showLocateLabel} />
+        <BindRecenter userLocation={userLocation} recenterRef={recenterRef} />
       </Map>
       <MapStatus />
     </div>
@@ -316,54 +314,29 @@ function RecenterOnUser({ location }: { location: GeoPoint }) {
   return null;
 }
 
-function MapToolbar({
+function BindRecenter({
   userLocation,
-  showLocateLabel,
+  recenterRef,
 }: {
   userLocation: GeoPoint;
-  showLocateLabel: boolean;
+  recenterRef?: { current: (() => void) | null };
 }) {
   const map = useMap();
-  if (!map) return null;
-  return (
-    <>
-      {showLocateLabel ? (
-        <MapControl position={ControlPosition.RIGHT_TOP}>
-          <button
-            type="button"
-            aria-label="My location"
-            onClick={() => {
-              map.panTo({
-                lat: userLocation.latitude,
-                lng: userLocation.longitude,
-              });
-              map.setZoom(14);
-            }}
-            className="mt-4 mr-4 hidden items-center gap-2 rounded-full bg-white px-4 py-2.5 text-[13px] font-semibold text-[#1c1917] shadow-[0_8px_20px_rgba(28,25,23,0.12)] md:flex"
-          >
-            <Locate size={16} className="text-[#3d9a4a]" />
-            My Location
-          </button>
-        </MapControl>
-      ) : null}
-      <MapControl position={ControlPosition.RIGHT_TOP}>
-        <button
-          type="button"
-          aria-label="My location"
-          onClick={() => {
-            map.panTo({
-              lat: userLocation.latitude,
-              lng: userLocation.longitude,
-            });
-            map.setZoom(14);
-          }}
-          className="mt-4 mr-4 flex h-10 w-10 items-center justify-center rounded-full bg-white text-[#3d9a4a] shadow-[0_8px_20px_rgba(28,25,23,0.12)] md:hidden"
-        >
-          <Locate size={18} />
-        </button>
-      </MapControl>
-    </>
-  );
+  useEffect(() => {
+    if (!recenterRef) return;
+    recenterRef.current = () => {
+      if (!map) return;
+      map.panTo({
+        lat: userLocation.latitude,
+        lng: userLocation.longitude,
+      });
+      map.setZoom(14);
+    };
+    return () => {
+      recenterRef.current = null;
+    };
+  }, [map, recenterRef, userLocation.latitude, userLocation.longitude]);
+  return null;
 }
 
 function MapStatus() {

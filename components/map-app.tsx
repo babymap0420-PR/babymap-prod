@@ -1,13 +1,15 @@
 "use client";
 
-import { MapPin, Plus, UserRound } from "lucide-react";
+import { Locate, MapPin, Plus } from "lucide-react";
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { AccountMenu } from "@/components/account-menu";
 import { AddSheet } from "@/components/add-sheet";
 import { ComboPicker } from "@/components/combo-picker";
 import { DetailPanel } from "@/components/detail-panel";
 import { FilterBar } from "@/components/filter-bar";
+import { LoginModal } from "@/components/login-modal";
 import { ProfileSheet } from "@/components/profile-sheet";
 import { SearchBar } from "@/components/search-bar";
 import { SummaryCard } from "@/components/summary-card";
@@ -35,11 +37,15 @@ import {
   type AreaLabel,
   type GeoPoint,
 } from "@/lib/geo";
+import { supabase } from "@/lib/supabase";
 import {
+  clearAuthSession,
   getAppUserId,
   getDisplayName,
   hasUpvoted,
   markUpvoted,
+  rememberAuthUser,
+  type KidSpotAccount,
 } from "@/lib/user";
 import type { Badge, MapLocation, TypeTab } from "@/types/location";
 
@@ -65,13 +71,20 @@ export function MapApp() {
   const [comboItems, setComboItems] = useState<MapLocation[] | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
+  const [showLogin, setShowLogin] = useState(false);
+  const [loginContext, setLoginContext] = useState("Sign in to add a spot to KidSpot");
   const [showProfile, setShowProfile] = useState(false);
+  const [authUserId, setAuthUserId] = useState<string | null>(null);
+  const [authAccount, setAuthAccount] = useState<KidSpotAccount | null>(null);
+  const [accountOpen, setAccountOpen] = useState(false);
+  const [editing, setEditing] = useState<MapLocation | null>(null);
   const [toast, setToast] = useState("");
   const [badges, setBadges] = useState<Badge[]>([]);
   const [isLocating, setIsLocating] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [voted, setVoted] = useState<Record<string, boolean>>({});
   const [area, setArea] = useState<AreaLabel>(FALLBACK_AREA);
+  const recenterRef = useRef<(() => void) | null>(null);
 
   const selected = locations.find((item) => item.id === selectedId) ?? null;
   const windowRange = useMemo(
@@ -140,13 +153,41 @@ export function MapApp() {
   }, [isLocating, load, userLocation]);
 
   useEffect(() => {
+    const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+      const user = session?.user ?? null;
+      if (!user) {
+        if (_event === "SIGNED_OUT") clearAuthSession();
+        setAuthAccount(null);
+        setAuthUserId(null);
+        setAccountOpen(false);
+        return;
+      }
+      const account = rememberAuthUser(user);
+      setAuthAccount(account);
+      setAuthUserId(account.id);
+      if (sessionStorage.getItem("kidspot_after_auth") === "add") {
+        sessionStorage.removeItem("kidspot_after_auth");
+        setShowLogin(false);
+        setShowProfile(false);
+        setDetail(null);
+        setEditing(null);
+        setShowAdd(true);
+        setToast(`👋 Welcome, ${account.nickname || account.name}!`);
+      }
+    });
+    return () => data.subscription.unsubscribe();
+  }, []);
+
+  useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
         setDetail(null);
         setSelectedId(null);
         setSearchOpen(false);
         setShowAdd(false);
+        setShowLogin(false);
         setShowProfile(false);
+        setAccountOpen(false);
         setComboItems(null);
       }
     }
@@ -217,10 +258,52 @@ export function MapApp() {
     setShowProfile(false);
   }
 
+  function openAccountSignIn() {
+    setAccountOpen(false);
+    setLoginContext("Sign in to your KidSpot account");
+    setShowLogin(true);
+  }
+
+  async function signOut() {
+    setAccountOpen(false);
+    clearAuthSession();
+    setAuthAccount(null);
+    setAuthUserId(null);
+    setShowAdd(false);
+    setShowProfile(false);
+    setEditing(null);
+    setToast("Signed out");
+    try {
+      await supabase.auth.signOut();
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : "Could not sign out");
+    }
+  }
+
   function openAdd() {
-    setShowAdd(true);
     setShowProfile(false);
     setDetail(null);
+    setSearchOpen(false);
+    setEditing(null);
+    void supabase.auth.getSession().then(({ data }) => {
+      if (!data.session) {
+        setLoginContext("Sign in to add a spot to KidSpot");
+        setShowLogin(true);
+        return;
+      }
+      setShowAdd(true);
+    });
+  }
+
+  function openEdit(location: MapLocation) {
+    if (!authUserId || location.submitted_by !== authUserId) {
+      setToast("You can only edit spots you created.");
+      return;
+    }
+    setEditing(location);
+    setShowAdd(true);
+    setDetail(null);
+    setShowProfile(false);
     setSearchOpen(false);
   }
 
@@ -293,21 +376,43 @@ export function MapApp() {
             void openDetails(id);
           }}
           showCallout={!detail}
-          showLocateLabel={!detail}
+          recenterRef={recenterRef}
         />
+        <div className="absolute top-4 right-4 z-[1300] hidden md:block">
+          <AccountMenu
+            account={authAccount}
+            open={accountOpen}
+            onOpenChange={setAccountOpen}
+            onSignOut={() => void signOut()}
+            onSignIn={openAccountSignIn}
+          />
+        </div>
         {isLocating ? (
           <div className="pointer-events-none absolute top-20 left-1/2 z-[1200] -translate-x-1/2 rounded-full bg-white px-4 py-2 text-sm text-[#78716c] shadow">
             Finding your location…
           </div>
         ) : null}
-        <button
-          type="button"
-          onClick={openAdd}
-          className="absolute right-4 bottom-6 z-[1200] hidden items-center gap-2 rounded-full bg-[#ff6b6b] px-5 py-3 text-[15px] font-bold text-white shadow-[0_10px_24px_rgba(255,107,107,0.4)] md:flex"
-        >
-          <Plus size={18} />
-          Add a spot
-        </button>
+        <div className="absolute right-4 bottom-6 z-[1200] hidden flex-col items-end gap-3 md:flex">
+          {!detail ? (
+            <button
+              type="button"
+              aria-label="My location"
+              onClick={() => recenterRef.current?.()}
+              className="flex items-center gap-2 rounded-full bg-white px-4 py-2.5 text-[13px] font-semibold text-[#1c1917] shadow-[0_8px_20px_rgba(28,25,23,0.12)]"
+            >
+              <Locate size={16} className="text-[#3d9a4a]" />
+              My Location
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={openAdd}
+            className="flex items-center gap-2 rounded-full bg-[#ff6b6b] px-5 py-3 text-[15px] font-bold text-white shadow-[0_10px_24px_rgba(255,107,107,0.4)]"
+          >
+            <Plus size={18} />
+            Add a spot
+          </button>
+        </div>
         {detail ? (
           <div className="absolute top-16 right-4 bottom-4 z-[1250] hidden w-[380px] md:flex">
             <DetailPanel
@@ -323,6 +428,8 @@ export function MapApp() {
               }}
               onFlag={() => void handleFlag(detail)}
               onReview={(body, thumbsUp) => void handleReview(detail, body, thumbsUp)}
+              canEdit={Boolean(authUserId && detail.submitted_by === authUserId)}
+              onEdit={() => openEdit(detail)}
             />
           </div>
         ) : null}
@@ -493,18 +600,13 @@ export function MapApp() {
               }}
             />
           </div>
-          <button
-            type="button"
-            aria-label="Profile and badges"
-            onClick={() => {
-              setShowProfile(true);
-              setShowAdd(false);
-              setDetail(null);
-            }}
-            className="flex h-12 w-12 items-center justify-center rounded-full bg-white text-[#1c1917] shadow-[0_8px_24px_rgba(28,25,23,0.10)]"
-          >
-            <UserRound size={20} />
-          </button>
+          <AccountMenu
+            account={authAccount}
+            open={accountOpen}
+            onOpenChange={setAccountOpen}
+            onSignOut={() => void signOut()}
+            onSignIn={openAccountSignIn}
+          />
         </div>
 
         <div className="pointer-events-auto">{filters("overlay")}</div>
@@ -588,16 +690,24 @@ export function MapApp() {
               }}
               onFlag={() => void handleFlag(detail)}
               onReview={(body, thumbsUp) => void handleReview(detail, body, thumbsUp)}
+              canEdit={Boolean(authUserId && detail.submitted_by === authUserId)}
+              onEdit={() => openEdit(detail)}
             />
           </div>
         ) : null}
 
         {showAdd ? (
           <AddSheet
+            key={editing?.id ?? "create-mobile"}
             userLocation={userLocation}
-            onClose={() => setShowAdd(false)}
+            editing={editing}
+            onClose={() => {
+              setShowAdd(false);
+              setEditing(null);
+            }}
             onComplete={(earned, message) => {
               setShowAdd(false);
+              setEditing(null);
               setBadges(earned);
               setToast(message);
               void load(userLocation);
@@ -610,12 +720,18 @@ export function MapApp() {
 
       {showAdd ? (
         <div className="absolute inset-0 z-[1400] hidden items-center justify-center bg-black/25 p-6 md:flex">
-          <div className="w-full max-w-lg">
+          <div className="w-full max-w-xl">
             <AddSheet
+              key={editing?.id ?? "create"}
               userLocation={userLocation}
-              onClose={() => setShowAdd(false)}
+              editing={editing}
+              onClose={() => {
+                setShowAdd(false);
+                setEditing(null);
+              }}
               onComplete={(earned, message) => {
                 setShowAdd(false);
+                setEditing(null);
                 setBadges(earned);
                 setToast(message);
                 void load(userLocation);
@@ -633,14 +749,24 @@ export function MapApp() {
         </div>
       ) : null}
 
-      <button
-        type="button"
-        onClick={openAdd}
-        className="absolute right-4 bottom-6 z-[1200] flex items-center gap-2 rounded-full bg-[#ff6b6b] px-4 py-3 text-[14px] font-bold text-white shadow-[0_10px_24px_rgba(255,107,107,0.45)] md:hidden"
-      >
-        <Plus size={18} />
-        Add a spot
-      </button>
+      <div className="absolute right-4 bottom-6 z-[1200] flex flex-col items-end gap-3 md:hidden">
+        <button
+          type="button"
+          aria-label="My location"
+          onClick={() => recenterRef.current?.()}
+          className="flex h-10 w-10 items-center justify-center rounded-full bg-white text-[#3d9a4a] shadow-[0_8px_20px_rgba(28,25,23,0.12)]"
+        >
+          <Locate size={18} />
+        </button>
+        <button
+          type="button"
+          onClick={openAdd}
+          className="flex items-center gap-2 rounded-full bg-[#ff6b6b] px-4 py-3 text-[14px] font-bold text-white shadow-[0_10px_24px_rgba(255,107,107,0.45)]"
+        >
+          <Plus size={18} />
+          Add a spot
+        </button>
+      </div>
 
       {locations.length === 0 && !isLocating && !loadError ? (
         <button
@@ -666,6 +792,24 @@ export function MapApp() {
             Retry
           </button>
         </div>
+      ) : null}
+
+      {showLogin ? (
+        <LoginModal
+          context={loginContext}
+          subtitle={hubLabel}
+          onClose={() => setShowLogin(false)}
+          onSuccess={(account) => {
+            setAuthAccount(account);
+            setAuthUserId(account.id);
+            setShowLogin(false);
+            setShowProfile(false);
+            setDetail(null);
+            setSearchOpen(false);
+            setToast(`👋 Welcome, ${account.nickname || account.name}!`);
+            if (loginContext.includes("add a spot")) setShowAdd(true);
+          }}
+        />
       ) : null}
 
       {toast || badges.length ? (

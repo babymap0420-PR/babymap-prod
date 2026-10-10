@@ -60,6 +60,7 @@ export type MapLocation = {
   favourite_count: number;
   distance_m: number | null;
   status: string;
+  submitted_by?: string | null;
   place_details: PlaceDetails | null;
   event_details: EventDetails | null;
   is_favourite?: boolean;

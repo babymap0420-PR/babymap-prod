@@ -5,6 +5,7 @@ import {
   Flag,
   Globe,
   MapPin,
+  Pencil,
   Share2,
   ThumbsUp,
   X,
@@ -32,6 +33,8 @@ export function DetailPanel({
   onShare,
   onFlag,
   onReview,
+  canEdit = false,
+  onEdit,
 }: {
   location: MapLocation;
   upvoted: boolean;
@@ -41,6 +44,8 @@ export function DetailPanel({
   onShare: () => void;
   onFlag: () => void;
   onReview: (body: string, thumbsUp: boolean) => void;
+  canEdit?: boolean;
+  onEdit?: () => void;
 }) {
   const photos = [
     listingPhoto(location.cover_photo_url, location.photo_urls),
@@ -114,6 +119,9 @@ export function DetailPanel({
           />
           <Action label="Share" onClick={onShare} icon={<Share2 size={18} />} />
           <Action label="Flag" onClick={onFlag} icon={<Flag size={18} />} />
+          {canEdit ? (
+            <Action label="Edit" onClick={() => onEdit?.()} icon={<Pencil size={18} />} />
+          ) : null}
         </div>
 
         <div className="space-y-3 px-5 py-4 text-[14px] text-[#44403c]">

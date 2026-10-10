@@ -1,3 +1,4 @@
+import { supabase } from "@/lib/supabase";
 import type { Badge, MapLocation } from "@/types/location";
 
 const SUPABASE_URL =
@@ -37,16 +38,25 @@ function kidspotErrorMessage(raw: string, data: unknown, status: number) {
 async function kidspot<T>(
   action: string,
   payload: Record<string, unknown> = {},
+  options?: { auth?: boolean },
 ): Promise<T> {
   if (!SUPABASE_PUBLISHABLE_KEY) {
     throw new Error("Missing NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY");
+  }
+
+  let authorization = `Bearer ${SUPABASE_PUBLISHABLE_KEY}`;
+  if (options?.auth) {
+    const { data } = await supabase.auth.getSession();
+    const token = data.session?.access_token;
+    if (!token) throw new Error("Sign in to continue");
+    authorization = `Bearer ${token}`;
   }
 
   const response = await fetch(`${SUPABASE_URL}/functions/v1/kidspot`, {
     method: "POST",
     headers: {
       apikey: SUPABASE_PUBLISHABLE_KEY,
-      Authorization: `Bearer ${SUPABASE_PUBLISHABLE_KEY}`,
+      Authorization: authorization,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({ action, ...payload }),
@@ -148,7 +158,12 @@ export async function submitLocation(payload: Record<string, unknown>) {
   return kidspot<{ id: string; status: string; badges: Badge[] }>(
     "submit",
     payload,
+    { auth: true },
   );
+}
+
+export async function updateLocation(payload: Record<string, unknown>) {
+  return kidspot<{ id: string; status: string }>("update", payload, { auth: true });
 }
 
 export async function flagContent(payload: {
