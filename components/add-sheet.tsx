@@ -133,7 +133,8 @@ function formFromLocation(location: MapLocation): FormState {
     latitude: location.latitude,
     longitude: location.longitude,
     host_name: location.event_details?.host_name ?? "",
-    amenities: location.place_details?.amenities ?? emptyForm.amenities,
+    amenities: amenitiesFromLocation(location),
+    hours: collapseHours(location.place_details?.operating_hours),
     recurrence: location.event_details?.is_recurring ? "weekly" : "once",
     event_date: start.date,
     range_start: start.date,
@@ -188,7 +189,7 @@ export function AddSheet({
   }, [query, step.kind, userLocation.latitude, userLocation.longitude]);
 
   return (
-    <div className="pointer-events-auto flex max-h-[min(88dvh,720px)] min-h-0 w-full flex-col overflow-hidden rounded-3xl bg-white shadow-[0_16px_40px_rgba(28,25,23,0.16)]">
+    <div className="pointer-events-auto flex h-full max-h-full min-h-0 w-full flex-col overflow-hidden bg-white shadow-[0_16px_40px_rgba(28,25,23,0.16)] md:h-auto md:max-h-[min(88dvh,720px)] md:rounded-3xl">
       <div className="flex items-center justify-between border-b border-[#f5f5f4] bg-white px-5 py-4">
         {step.kind === "form" && !editing ? (
           <div className="flex min-w-0 items-center gap-2">
@@ -626,6 +627,75 @@ function expandHours(rows: HourRow[]) {
     for (const day of parseDayRange(row.days)) hours[day] = slot;
   }
   return hours;
+}
+
+const AMENITY_FORM_ID: Record<string, string> = {
+  stroller_friendly: "stroller_friendly",
+  "stroller-friendly": "stroller_friendly",
+  washroom: "washroom",
+  washroom_on_site: "washroom",
+  parking: "parking",
+  snack: "snack",
+  shade: "shade",
+  shaded_seating: "shade",
+  fenced: "fenced",
+  fenced_area: "fenced",
+};
+
+function amenitiesFromLocation(location: MapLocation) {
+  if (!location.place_details) return emptyForm.amenities;
+  const ids = new Set<string>();
+  const stored = location.place_details.amenities;
+  const list = Array.isArray(stored) ? stored : [];
+  for (const item of list) {
+    const mapped = AMENITY_FORM_ID[item];
+    if (mapped) ids.add(mapped);
+  }
+  if (location.place_details.fenced) ids.add("fenced");
+  if (location.parking_available) ids.add("parking");
+  return [...ids];
+}
+
+function padTime(value: string) {
+  const [hour, minute] = value.split(":");
+  if (!hour) return "09:00";
+  return `${hour.padStart(2, "0")}:${(minute ?? "00").padStart(2, "0").slice(0, 2)}`;
+}
+
+function collapseHours(hours: Record<string, string> | null | undefined): HourRow[] {
+  if (!hours) return defaultHours;
+  const slots = new Map<string, string>();
+  for (const [key, slot] of Object.entries(hours)) {
+    const day = DAY_KEYS.find((item) => key.toLowerCase().startsWith(item));
+    if (day && slot) slots.set(day, slot);
+  }
+  if (slots.size === 0) return defaultHours;
+
+  const order = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+  const groups: { days: string[]; slot: string }[] = [];
+  for (const day of order) {
+    const slot = slots.get(day);
+    if (!slot) continue;
+    const current = groups[groups.length - 1];
+    const previous = current?.days[current.days.length - 1];
+    const follows =
+      previous != null && order.indexOf(day) === order.indexOf(previous) + 1;
+    if (current && current.slot === slot && follows) current.days.push(day);
+    else groups.push({ days: [day], slot });
+  }
+
+  return groups.map((group) => {
+    const closed = group.slot.toLowerCase() === "closed";
+    const [open, close] = closed ? ["09:00", "17:00"] : group.slot.split("-");
+    const first = DAY_LABELS[DAY_KEYS.indexOf(group.days[0])];
+    const last = DAY_LABELS[DAY_KEYS.indexOf(group.days[group.days.length - 1])];
+    return {
+      days: group.days.length === 1 ? first : `${first}–${last}`,
+      open: padTime(open ?? "09:00"),
+      close: padTime(close ?? "17:00"),
+      closed,
+    };
+  });
 }
 
 function eventStart(form: FormState, type: LocationKind) {
@@ -1150,52 +1220,61 @@ function OperatingHoursEditor({
       {rows.map((row, index) => (
         <div
           key={index}
-          className="flex items-center gap-2 rounded-xl border border-stone-200 bg-stone-50 p-2"
+          className="space-y-2 rounded-xl border border-stone-200 bg-stone-50 p-2"
         >
-          <input
-            value={row.days}
-            placeholder="Mon–Fri"
-            onChange={(event) => update(index, { days: event.target.value })}
-            className="w-20 rounded-lg border border-stone-200 bg-white px-2 py-1 text-[11px] font-bold text-stone-700 outline-none focus:ring-1 focus:ring-[#ff6b6b]"
-          />
-          <span className="text-[10px] text-stone-400">Open</span>
-          <input
-            type="time"
-            value={row.open}
-            disabled={row.closed}
-            onChange={(event) => update(index, { open: event.target.value })}
-            className="rounded-lg border border-stone-200 bg-white px-2 py-1 text-[11px] font-semibold text-stone-700 outline-none focus:ring-1 focus:ring-[#ff6b6b] disabled:opacity-40"
-          />
-          <span className="text-[10px] text-stone-400">–</span>
-          <input
-            type="time"
-            value={row.close}
-            disabled={row.closed}
-            onChange={(event) => update(index, { close: event.target.value })}
-            className="rounded-lg border border-stone-200 bg-white px-2 py-1 text-[11px] font-semibold text-stone-700 outline-none focus:ring-1 focus:ring-[#ff6b6b] disabled:opacity-40"
-          />
-          <button
-            type="button"
-            onClick={() => update(index, { closed: !row.closed })}
-            className={cn(
-              "ml-auto rounded-full border px-2 py-0.5 text-[10px] font-bold",
-              row.closed
-                ? "border-stone-300 bg-stone-200 text-stone-500"
-                : "border-stone-200 bg-white text-stone-400 hover:border-rose-300",
-            )}
-          >
-            {row.closed ? "Closed" : "Open"}
-          </button>
-          {rows.length > 1 ? (
+          <div className="flex items-center gap-2">
+            <input
+              value={row.days}
+              placeholder="Mon–Fri"
+              onChange={(event) => update(index, { days: event.target.value })}
+              className="min-w-0 flex-1 rounded-lg border border-stone-200 bg-white px-2 py-1 text-[11px] font-bold text-stone-700 outline-none focus:ring-1 focus:ring-[#ff6b6b]"
+            />
             <button
               type="button"
-              aria-label="Remove hours row"
-              onClick={() => onChange(rows.filter((_, rowIndex) => rowIndex !== index))}
-              className="text-stone-300 hover:text-rose-400"
+              onClick={() => update(index, { closed: !row.closed })}
+              className={cn(
+                "shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-bold",
+                row.closed
+                  ? "border-stone-300 bg-stone-200 text-stone-500"
+                  : "border-stone-200 bg-white text-stone-400 hover:border-rose-300",
+              )}
             >
-              <X size={14} />
+              {row.closed ? "Closed" : "Open"}
             </button>
-          ) : null}
+            {rows.length > 1 ? (
+              <button
+                type="button"
+                aria-label="Remove hours row"
+                onClick={() => onChange(rows.filter((_, rowIndex) => rowIndex !== index))}
+                className="shrink-0 text-stone-300 hover:text-rose-400"
+              >
+                <X size={14} />
+              </button>
+            ) : null}
+          </div>
+          <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-1.5">
+            <label className="min-w-0">
+              <span className="mb-0.5 block text-[10px] text-stone-400">Opens</span>
+              <input
+                type="time"
+                value={row.open}
+                disabled={row.closed}
+                onChange={(event) => update(index, { open: event.target.value })}
+                className="w-full min-w-0 rounded-lg border border-stone-200 bg-white px-2 py-1 text-[11px] font-semibold text-stone-700 outline-none focus:ring-1 focus:ring-[#ff6b6b] disabled:opacity-40"
+              />
+            </label>
+            <span className="pt-3 text-[10px] text-stone-400">–</span>
+            <label className="min-w-0">
+              <span className="mb-0.5 block text-[10px] text-stone-400">Closes</span>
+              <input
+                type="time"
+                value={row.close}
+                disabled={row.closed}
+                onChange={(event) => update(index, { close: event.target.value })}
+                className="w-full min-w-0 rounded-lg border border-stone-200 bg-white px-2 py-1 text-[11px] font-semibold text-stone-700 outline-none focus:ring-1 focus:ring-[#ff6b6b] disabled:opacity-40"
+              />
+            </label>
+          </div>
         </div>
       ))}
       <button

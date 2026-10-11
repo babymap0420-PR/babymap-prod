@@ -8,6 +8,7 @@ import {
   Pencil,
   Share2,
   ThumbsUp,
+  Trash2,
   X,
 } from "lucide-react";
 import { useState, type ReactNode } from "react";
@@ -22,7 +23,7 @@ import {
 } from "@/lib/format";
 import { hoursSummary } from "@/lib/hours";
 import { listingPhoto } from "@/lib/photos";
-import type { MapLocation } from "@/types/location";
+import type { LocationReview, MapLocation } from "@/types/location";
 
 export function DetailPanel({
   location,
@@ -35,6 +36,9 @@ export function DetailPanel({
   onReview,
   canEdit = false,
   onEdit,
+  currentUserId = null,
+  onUpdateReview,
+  onDeleteReview,
 }: {
   location: MapLocation;
   upvoted: boolean;
@@ -46,6 +50,9 @@ export function DetailPanel({
   onReview: (body: string, thumbsUp: boolean) => void;
   canEdit?: boolean;
   onEdit?: () => void;
+  currentUserId?: string | null;
+  onUpdateReview?: (reviewId: string, body: string) => void;
+  onDeleteReview?: (reviewId: string) => void;
 }) {
   const photos = [
     listingPhoto(location.cover_photo_url, location.photo_urls),
@@ -228,23 +235,113 @@ export function DetailPanel({
               <p className="text-[14px] text-[#a8a29e]">No reviews yet.</p>
             ) : (
               (location.reviews ?? []).map((review) => (
-                <div key={review.id}>
-                  <p className="text-[14px] font-medium text-[#1c1917]">
-                    {review.display_name}
-                    <span className="ml-2 font-normal text-[#a8a29e]">
-                      {formatReviewDate(review.created_at)}
-                    </span>
-                  </p>
-                  <p className="mt-1 text-[14px] leading-5 text-[#44403c]">
-                    {review.body}
-                  </p>
-                </div>
+                <ReviewItem
+                  key={review.id}
+                  review={review}
+                  mine={Boolean(currentUserId && review.user_id === currentUserId)}
+                  onUpdate={onUpdateReview}
+                  onDelete={onDeleteReview}
+                />
               ))
             )}
           </div>
         </div>
       </div>
     </article>
+  );
+}
+
+function ReviewItem({
+  review,
+  mine,
+  onUpdate,
+  onDelete,
+}: {
+  review: LocationReview;
+  mine: boolean;
+  onUpdate?: (reviewId: string, body: string) => void;
+  onDelete?: (reviewId: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [body, setBody] = useState(review.body);
+
+  return (
+    <div>
+      <p className="text-[14px] font-medium text-[#1c1917]">
+        {review.display_name}
+        <span className="ml-2 font-normal text-[#a8a29e]">
+          {formatReviewDate(review.created_at)}
+        </span>
+        {review.status && review.status !== "visible" ? (
+          <span className="ml-2 font-normal text-[#ff6b6b]">Pending</span>
+        ) : null}
+      </p>
+      {editing ? (
+        <form
+          className="mt-2 space-y-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const next = body.trim();
+            if (next.length < 3) return;
+            onUpdate?.(review.id, next);
+            setEditing(false);
+          }}
+        >
+          <textarea
+            value={body}
+            onChange={(event) => setBody(event.target.value)}
+            className="h-20 w-full rounded-xl border border-[#e7e5e4] px-3 py-2 text-[14px] text-[#1c1917] outline-none"
+          />
+          <div className="flex gap-2">
+            <button
+              type="submit"
+              className="rounded-full bg-[#1c1917] px-3 py-1.5 text-[12px] font-semibold text-white"
+            >
+              Save
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setBody(review.body);
+                setEditing(false);
+              }}
+              className="rounded-full bg-[#f0ebe3] px-3 py-1.5 text-[12px] font-semibold text-[#44403c]"
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      ) : (
+        <>
+          <p className="mt-1 text-[14px] leading-5 text-[#44403c]">{review.body}</p>
+          {mine ? (
+            <div className="mt-1.5 flex gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setBody(review.body);
+                  setEditing(true);
+                }}
+                className="inline-flex items-center gap-1 text-[12px] font-semibold text-[#78716c]"
+              >
+                <Pencil size={13} />
+                Edit
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (window.confirm("Delete this review?")) onDelete?.(review.id);
+                }}
+                className="inline-flex items-center gap-1 text-[12px] font-semibold text-[#ff6b6b]"
+              >
+                <Trash2 size={13} />
+                Delete
+              </button>
+            </div>
+          ) : null}
+        </>
+      )}
+    </div>
   );
 }
 

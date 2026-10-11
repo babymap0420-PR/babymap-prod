@@ -31,10 +31,12 @@ export type EventDetails = {
 
 export type LocationReview = {
   id: string;
+  user_id?: string | null;
   body: string;
   photo_url: string | null;
   created_at: string;
   display_name: string;
+  status?: string | null;
 };
 
 export type MapLocation = {

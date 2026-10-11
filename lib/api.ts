@@ -127,6 +127,22 @@ export async function addReview(payload: {
   });
 }
 
+export async function updateReview(payload: { reviewId: string; body: string }) {
+  return kidspot<{ id: string; status: string }>(
+    "review_update",
+    { id: payload.reviewId, body: payload.body },
+    { auth: true },
+  );
+}
+
+export async function deleteReview(reviewId: string) {
+  return kidspot<{ id: string; status: string }>(
+    "review_delete",
+    { id: reviewId },
+    { auth: true },
+  );
+}
+
 export async function toggleFavourite(payload: {
   userId: string;
   locationId: string;

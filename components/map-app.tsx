@@ -21,6 +21,8 @@ import {
   toggleFavourite,
   upvoteLocation,
   addReview,
+  updateReview,
+  deleteReview,
 } from "@/lib/api";
 import { categoryLabel } from "@/data/lookups";
 import { cn } from "@/lib/cn";
@@ -430,6 +432,9 @@ export function MapApp() {
               onReview={(body, thumbsUp) => void handleReview(detail, body, thumbsUp)}
               canEdit={Boolean(authUserId && detail.submitted_by === authUserId)}
               onEdit={() => openEdit(detail)}
+              currentUserId={authUserId}
+              onUpdateReview={(reviewId, body) => void handleUpdateReview(detail, reviewId, body)}
+              onDeleteReview={(reviewId) => void handleDeleteReview(detail, reviewId)}
             />
           </div>
         ) : null}
@@ -582,7 +587,7 @@ export function MapApp() {
         className={cn(
           "pointer-events-none absolute z-[1100] flex flex-col gap-3 md:hidden",
           "top-3 right-3 left-3",
-          detail || showAdd || showProfile ? "bottom-0" : "",
+          detail || showProfile ? "bottom-0" : "",
         )}
       >
         <div className="pointer-events-auto flex items-center gap-2">
@@ -671,10 +676,6 @@ export function MapApp() {
           />
         ) : null}
 
-        {selected && !detail && !showAdd && !showProfile ? (
-          <SummaryCard location={selected} onDetails={() => void openDetails(selected.id)} />
-        ) : null}
-
         {detail ? (
           <div className="flex min-h-0 flex-1">
             <DetailPanel
@@ -692,35 +693,19 @@ export function MapApp() {
               onReview={(body, thumbsUp) => void handleReview(detail, body, thumbsUp)}
               canEdit={Boolean(authUserId && detail.submitted_by === authUserId)}
               onEdit={() => openEdit(detail)}
+              currentUserId={authUserId}
+              onUpdateReview={(reviewId, body) => void handleUpdateReview(detail, reviewId, body)}
+              onDeleteReview={(reviewId) => void handleDeleteReview(detail, reviewId)}
             />
           </div>
-        ) : null}
-
-        {showAdd ? (
-          <AddSheet
-            key={editing?.id ?? "create-mobile"}
-            userLocation={userLocation}
-            editing={editing}
-            onClose={() => {
-              setShowAdd(false);
-              setEditing(null);
-            }}
-            onComplete={(earned, message) => {
-              setShowAdd(false);
-              setEditing(null);
-              setBadges(earned);
-              setToast(message);
-              void load(userLocation);
-            }}
-          />
         ) : null}
 
         {showProfile ? <ProfileSheet onClose={() => setShowProfile(false)} /> : null}
       </div>
 
       {showAdd ? (
-        <div className="absolute inset-0 z-[1400] hidden items-center justify-center bg-black/25 p-6 md:flex">
-          <div className="w-full max-w-xl">
+        <div className="absolute inset-0 z-[1600] flex bg-black/35 p-0 md:items-center md:justify-center md:bg-black/25 md:p-6">
+          <div className="flex h-full min-h-0 w-full flex-col md:h-auto md:max-h-[min(88dvh,720px)] md:max-w-xl">
             <AddSheet
               key={editing?.id ?? "create"}
               userLocation={userLocation}
@@ -749,7 +734,12 @@ export function MapApp() {
         </div>
       ) : null}
 
-      <div className="absolute right-4 bottom-6 z-[1200] flex flex-col items-end gap-3 md:hidden">
+      <div
+        className={cn(
+          "absolute right-4 bottom-6 z-[1200] flex flex-col items-end gap-3 md:hidden",
+          showAdd && "hidden",
+        )}
+      >
         <button
           type="button"
           aria-label="My location"
@@ -908,6 +898,26 @@ export function MapApp() {
       await openDetails(location.id);
     } catch (error) {
       setToast(error instanceof Error ? error.message : "Could not review");
+    }
+  }
+
+  async function handleUpdateReview(location: MapLocation, reviewId: string, body: string) {
+    try {
+      const result = await updateReview({ reviewId, body });
+      setToast(result.status === "visible" ? "Review updated" : "Review updated and waiting for review");
+      await openDetails(location.id);
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : "Could not update review");
+    }
+  }
+
+  async function handleDeleteReview(location: MapLocation, reviewId: string) {
+    try {
+      await deleteReview(reviewId);
+      setToast("Review deleted");
+      await openDetails(location.id);
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : "Could not delete review");
     }
   }
 }
