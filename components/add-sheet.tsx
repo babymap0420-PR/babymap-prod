@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 
+import { StarPicker } from "@/components/star-rating";
 import { AGE_TAGS, EVENT_CATEGORIES, PLACE_CATEGORIES, categoryEmoji } from "@/data/lookups";
 import { searchLocations, submitLocation, updateLocation, addReview } from "@/lib/api";
 import { cn } from "@/lib/cn";
@@ -49,6 +50,7 @@ type FormState = {
   google_place_id: string;
   host_name: string;
   review_body: string;
+  rating: number;
   thumbs_up: boolean;
   amenities: string[];
   hours: HourRow[];
@@ -87,6 +89,7 @@ const emptyForm: FormState = {
   google_place_id: "",
   host_name: "",
   review_body: "",
+  rating: 0,
   thumbs_up: true,
   amenities: ["stroller_friendly", "washroom"],
   hours: defaultHours,
@@ -168,7 +171,7 @@ export function AddSheet({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [reviewBody, setReviewBody] = useState("");
-  const [thumbsUp, setThumbsUp] = useState(true);
+  const [rating, setRating] = useState(0);
 
   useEffect(() => {
     if (step.kind !== "search") return;
@@ -357,16 +360,10 @@ export function AddSheet({
               {step.location.name}
             </p>
             <p className="mt-1 text-[13px] text-[#78716c]">
-              Leave a lightweight review for this listing.
+              Rate this spot, then share a short note for other parents.
             </p>
-            <div className="mt-3 flex gap-2">
-              <Thumb active={thumbsUp} onClick={() => setThumbsUp(true)} label="Thumbs up" />
-              <Thumb
-                active={!thumbsUp}
-                down
-                onClick={() => setThumbsUp(false)}
-                label="Thumbs down"
-              />
+            <div className="mt-3">
+              <StarPicker value={rating} onChange={setRating} />
             </div>
             <textarea
               value={reviewBody}
@@ -425,6 +422,10 @@ export function AddSheet({
   );
 
   async function submitExistingReview(locationId: string) {
+    if (rating < 1) {
+      setError("Choose a star rating.");
+      return;
+    }
     if (reviewBody.trim().length < 3) {
       setError("Write a short review first.");
       return;
@@ -436,7 +437,7 @@ export function AddSheet({
         userId: getAppUserId(),
         locationId,
         body: reviewBody.trim(),
-        thumbsUp,
+        rating,
         displayName: getDisplayName() || undefined,
       });
       onComplete(result.badges ?? [], "Thanks — your review is in.");
@@ -482,6 +483,14 @@ export function AddSheet({
       setError("Events need a date.");
       return;
     }
+    if (!editing && form.review_body.trim() && form.rating < 1) {
+      setError("Choose a star rating for your review.");
+      return;
+    }
+    if (!editing && form.rating > 0 && form.review_body.trim().length < 3) {
+      setError("Write a short review to go with your stars.");
+      return;
+    }
     setBusy(true);
     setError("");
     try {
@@ -520,7 +529,8 @@ export function AddSheet({
               : "outdoor"
             : undefined,
         review_body: form.review_body.trim(),
-        thumbs_up: form.thumbs_up,
+        rating: form.rating || null,
+        thumbs_up: false,
       };
       if (editing) {
         await updateLocation({ ...payload, id: editing.id });
@@ -944,6 +954,7 @@ function FormFields({
       {showReview ? (
         <div className="space-y-2 rounded-2xl border border-stone-100 bg-white p-4">
           <h3 className={sectionClass}>{reviewStep} Your Review</h3>
+          <StarPicker value={value.rating} onChange={(rating) => patch({ rating })} size={24} />
           <textarea
             rows={2}
             value={value.review_body}
@@ -1799,35 +1810,6 @@ function Section({
         {children}
       </div>
     </div>
-  );
-}
-
-function Thumb({
-  active,
-  onClick,
-  label,
-  down = false,
-}: {
-  active: boolean;
-  onClick: () => void;
-  label: string;
-  down?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "rounded-full px-3 py-1.5 text-[13px] font-medium",
-        active
-          ? down
-            ? "bg-[#ff6b6b] text-white"
-            : "bg-[#22c55e] text-white"
-          : "bg-[#f0ebe3] text-[#78716c]",
-      )}
-    >
-      {label}
-    </button>
   );
 }
 

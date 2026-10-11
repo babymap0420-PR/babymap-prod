@@ -56,6 +56,11 @@ const MapView = dynamic(() => import("@/components/map-view"), {
   loading: () => <div className="h-full w-full bg-[#f7f4ef]" />,
 });
 
+const TOAST_MS = 4000;
+
+type ToastTone = "success" | "error";
+type ToastNotice = { message: string; tone: ToastTone };
+
 export function MapApp() {
   const [query, setQuery] = useState("");
   const [tab, setTab] = useState<TypeTab>("all");
@@ -80,7 +85,10 @@ export function MapApp() {
   const [authAccount, setAuthAccount] = useState<KidSpotAccount | null>(null);
   const [accountOpen, setAccountOpen] = useState(false);
   const [editing, setEditing] = useState<MapLocation | null>(null);
-  const [toast, setToast] = useState("");
+  const [toast, setToastNotice] = useState<ToastNotice | null>(null);
+  function setToast(message: string, tone: ToastTone = "success") {
+    setToastNotice(message ? { message, tone } : null);
+  }
   const [badges, setBadges] = useState<Badge[]>([]);
   const [isLocating, setIsLocating] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -197,6 +205,15 @@ export function MapApp() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
+  useEffect(() => {
+    if (!toast) return;
+    const timer = window.setTimeout(() => {
+      setToastNotice(null);
+      setBadges([]);
+    }, TOAST_MS);
+    return () => window.clearTimeout(timer);
+  }, [toast]);
+
   async function openDetails(id: string) {
     setComboItems(null);
     setSearchOpen(false);
@@ -209,7 +226,7 @@ export function MapApp() {
       setDetail(full);
       setVoted((current) => ({ ...current, [id]: hasUpvoted(id) }));
     } catch (error) {
-      setToast(error instanceof Error ? error.message : "Could not open details");
+      setToast(error instanceof Error ? error.message : "Could not open details", "error");
     }
   }
 
@@ -278,7 +295,7 @@ export function MapApp() {
     try {
       await supabase.auth.signOut();
     } catch (error) {
-      setToast(error instanceof Error ? error.message : "Could not sign out");
+      setToast(error instanceof Error ? error.message : "Could not sign out", "error");
     }
   }
 
@@ -299,7 +316,7 @@ export function MapApp() {
 
   function openEdit(location: MapLocation) {
     if (!authUserId || location.submitted_by !== authUserId) {
-      setToast("You can only edit spots you created.");
+      setToast("You can only edit spots you created.", "error");
       return;
     }
     setEditing(location);
@@ -429,11 +446,13 @@ export function MapApp() {
                 setToast("Copied share text");
               }}
               onFlag={() => void handleFlag(detail)}
-              onReview={(body, thumbsUp) => void handleReview(detail, body, thumbsUp)}
+              onReview={(body, rating) => void handleReview(detail, body, rating)}
               canEdit={Boolean(authUserId && detail.submitted_by === authUserId)}
               onEdit={() => openEdit(detail)}
               currentUserId={authUserId}
-              onUpdateReview={(reviewId, body) => void handleUpdateReview(detail, reviewId, body)}
+              onUpdateReview={(reviewId, body, rating) =>
+                void handleUpdateReview(detail, reviewId, body, rating)
+              }
               onDeleteReview={(reviewId) => void handleDeleteReview(detail, reviewId)}
             />
           </div>
@@ -587,7 +606,7 @@ export function MapApp() {
         className={cn(
           "pointer-events-none absolute z-[1100] flex flex-col gap-3 md:hidden",
           "top-3 right-3 left-3",
-          detail || showProfile ? "bottom-0" : "",
+          showProfile ? "bottom-0" : "",
         )}
       >
         <div className="pointer-events-auto flex items-center gap-2">
@@ -676,32 +695,34 @@ export function MapApp() {
           />
         ) : null}
 
-        {detail ? (
-          <div className="flex min-h-0 flex-1">
-            <DetailPanel
-              key={detail.id}
-              location={detail}
-              upvoted={Boolean(voted[detail.id])}
-              onClose={() => setDetail(null)}
-              onUpvote={() => void handleUpvote(detail)}
-              onFavourite={() => void handleFavourite(detail)}
-              onShare={() => {
-                void navigator.clipboard?.writeText(`${detail.name} · ${detail.address}`);
-                setToast("Copied share text");
-              }}
-              onFlag={() => void handleFlag(detail)}
-              onReview={(body, thumbsUp) => void handleReview(detail, body, thumbsUp)}
-              canEdit={Boolean(authUserId && detail.submitted_by === authUserId)}
-              onEdit={() => openEdit(detail)}
-              currentUserId={authUserId}
-              onUpdateReview={(reviewId, body) => void handleUpdateReview(detail, reviewId, body)}
-              onDeleteReview={(reviewId) => void handleDeleteReview(detail, reviewId)}
-            />
-          </div>
-        ) : null}
-
         {showProfile ? <ProfileSheet onClose={() => setShowProfile(false)} /> : null}
       </div>
+
+      {detail ? (
+        <div className="absolute inset-0 z-[1600] flex flex-col bg-white md:hidden">
+          <DetailPanel
+            key={detail.id}
+            location={detail}
+            upvoted={Boolean(voted[detail.id])}
+            onClose={() => setDetail(null)}
+            onUpvote={() => void handleUpvote(detail)}
+            onFavourite={() => void handleFavourite(detail)}
+            onShare={() => {
+              void navigator.clipboard?.writeText(`${detail.name} · ${detail.address}`);
+              setToast("Copied share text");
+            }}
+            onFlag={() => void handleFlag(detail)}
+            onReview={(body, rating) => void handleReview(detail, body, rating)}
+            canEdit={Boolean(authUserId && detail.submitted_by === authUserId)}
+            onEdit={() => openEdit(detail)}
+            currentUserId={authUserId}
+            onUpdateReview={(reviewId, body, rating) =>
+              void handleUpdateReview(detail, reviewId, body, rating)
+            }
+            onDeleteReview={(reviewId) => void handleDeleteReview(detail, reviewId)}
+          />
+        </div>
+      ) : null}
 
       {showAdd ? (
         <div className="absolute inset-0 z-[1600] flex bg-black/35 p-0 md:items-center md:justify-center md:bg-black/25 md:p-6">
@@ -737,7 +758,7 @@ export function MapApp() {
       <div
         className={cn(
           "absolute right-4 bottom-6 z-[1200] flex flex-col items-end gap-3 md:hidden",
-          showAdd && "hidden",
+          (showAdd || detail) && "hidden",
         )}
       >
         <button
@@ -803,8 +824,14 @@ export function MapApp() {
       ) : null}
 
       {toast || badges.length ? (
-        <div className="absolute bottom-8 left-1/2 z-[1500] w-[min(92vw,360px)] -translate-x-1/2 rounded-2xl bg-[#1c1917] px-4 py-3 text-white shadow md:left-[calc(420px+50%)]">
-          {toast ? <p className="text-[14px]">{toast}</p> : null}
+        <div
+          role={toast?.tone === "error" ? "alert" : "status"}
+          className={cn(
+            "absolute top-4 right-4 z-[1800] w-[min(92vw,360px)] rounded-2xl px-4 py-3 text-white shadow-[0_12px_28px_rgba(28,25,23,0.22)]",
+            toast?.tone === "error" ? "bg-[#c4312c]" : "bg-[#157a34]",
+          )}
+        >
+          {toast ? <p className="text-[14px] leading-5">{toast.message}</p> : null}
           {badges.map((badge) => (
             <p key={badge.id} className="mt-1 text-[13px]">
               {badge.icon_url} Badge: {badge.name}
@@ -812,7 +839,7 @@ export function MapApp() {
           ))}
           <button
             type="button"
-            className="mt-2 text-[12px] text-[#f7f4ef]"
+            className="mt-2 text-[12px] font-semibold text-white/90"
             onClick={() => {
               setToast("");
               setBadges([]);
@@ -844,7 +871,7 @@ export function MapApp() {
         ),
       );
     } catch (error) {
-      setToast(error instanceof Error ? error.message : "Could not upvote");
+      setToast(error instanceof Error ? error.message : "Could not upvote", "error");
     }
   }
 
@@ -861,7 +888,7 @@ export function MapApp() {
         favourite_count: result.favourite_count,
       });
     } catch (error) {
-      setToast(error instanceof Error ? error.message : "Could not favourite");
+      setToast(error instanceof Error ? error.message : "Could not favourite", "error");
     }
   }
 
@@ -880,34 +907,39 @@ export function MapApp() {
           : "Thanks. We’ll review this flag.",
       );
     } catch (error) {
-      setToast(error instanceof Error ? error.message : "Could not flag");
+      setToast(error instanceof Error ? error.message : "Could not flag", "error");
     }
   }
 
-  async function handleReview(location: MapLocation, body: string, thumbsUp: boolean) {
+  async function handleReview(location: MapLocation, body: string, rating: number) {
     try {
       const result = await addReview({
         userId: getAppUserId(),
         locationId: location.id,
         body,
-        thumbsUp,
+        rating,
         displayName: getDisplayName() || undefined,
       });
       setBadges(result.badges ?? []);
       setToast("Review posted");
       await openDetails(location.id);
     } catch (error) {
-      setToast(error instanceof Error ? error.message : "Could not review");
+      setToast(error instanceof Error ? error.message : "Could not review", "error");
     }
   }
 
-  async function handleUpdateReview(location: MapLocation, reviewId: string, body: string) {
+  async function handleUpdateReview(
+    location: MapLocation,
+    reviewId: string,
+    body: string,
+    rating: number,
+  ) {
     try {
-      const result = await updateReview({ reviewId, body });
+      const result = await updateReview({ reviewId, body, rating });
       setToast(result.status === "visible" ? "Review updated" : "Review updated and waiting for review");
       await openDetails(location.id);
     } catch (error) {
-      setToast(error instanceof Error ? error.message : "Could not update review");
+      setToast(error instanceof Error ? error.message : "Could not update review", "error");
     }
   }
 
@@ -917,7 +949,7 @@ export function MapApp() {
       setToast("Review deleted");
       await openDetails(location.id);
     } catch (error) {
-      setToast(error instanceof Error ? error.message : "Could not delete review");
+      setToast(error instanceof Error ? error.message : "Could not delete review", "error");
     }
   }
 }

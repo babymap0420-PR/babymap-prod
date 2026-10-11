@@ -113,24 +113,25 @@ export async function addReview(payload: {
   userId: string;
   locationId: string;
   body: string;
+  rating: number;
   photoUrl?: string;
-  thumbsUp: boolean;
   displayName?: string;
 }) {
   return kidspot<{ id: string; status: string; badges: Badge[] }>("review", {
     user_id: payload.userId,
     location_id: payload.locationId,
-    body: payload.body,
+    body: `[[rating:${payload.rating}]]${payload.body}`,
     photo_url: payload.photoUrl ?? null,
-    thumbs_up: payload.thumbsUp,
+    thumbs_up: false,
+    rating: payload.rating,
     display_name: payload.displayName ?? null,
   });
 }
 
-export async function updateReview(payload: { reviewId: string; body: string }) {
+export async function updateReview(payload: { reviewId: string; body: string; rating: number }) {
   return kidspot<{ id: string; status: string }>(
     "review_update",
-    { id: payload.reviewId, body: payload.body },
+    { id: payload.reviewId, body: payload.body, rating: payload.rating },
     { auth: true },
   );
 }

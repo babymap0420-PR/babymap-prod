@@ -37,6 +37,7 @@ export type LocationReview = {
   created_at: string;
   display_name: string;
   status?: string | null;
+  rating?: number | null;
 };
 
 export type MapLocation = {
@@ -59,6 +60,7 @@ export type MapLocation = {
   parking_available: boolean | null;
   upvote_count: number;
   review_count: number;
+  average_rating?: number | null;
   favourite_count: number;
   distance_m: number | null;
   status: string;
